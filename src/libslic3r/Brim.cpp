@@ -49,8 +49,16 @@ static float max_brim_width(const ConstPrintObjectPtrsAdaptor &objects)
 static ExPolygons get_print_object_bottom_layer_expolygons(const PrintObject &print_object)
 {
     ExPolygons ex_polygons;
-    for (LayerRegion *region : print_object.layers().front()->regions())
-        Slic3r::append(ex_polygons, offset_ex(offset_ex(region->slices.surfaces, float(SCALED_EPSILON)), -float(SCALED_EPSILON)));
+
+    if (print_object.has_raft()) {
+        // Generate brim around raft. It makes no sense to generate around object's first layer
+        // and we will not have to deal with intersections with raft.
+        Slic3r::append(ex_polygons, offset_ex(offset_ex(print_object.support_layers().front()->support_islands.expolygons, float(SCALED_EPSILON)), -float(SCALED_EPSILON)));
+    }
+    else
+        for (LayerRegion *region : print_object.layers().front()->regions())
+            Slic3r::append(ex_polygons, offset_ex(offset_ex(region->slices.surfaces, float(SCALED_EPSILON)), -float(SCALED_EPSILON)));
+
     return ex_polygons;
 }
 

@@ -2797,8 +2797,9 @@ PrintObjectSupportMaterial::MyLayersPtr PrintObjectSupportMaterial::generate_raf
 {
     // If there is brim to be generated, calculate the trimming regions.
     Polygons brim;
-    if (object.has_brim()) {
-        // Calculate the area covered by the brim.
+    if (object.has_brim() && ! object.has_raft()) {
+        // Calculate the area covered by the brim. When raft is enabled, brim is generated
+        // around it so there should be no collision.
         const BrimType brim_type   = object.config().brim_type;
         const bool     brim_outer  = brim_type == btOuterOnly || brim_type == btOuterAndInner;
         const bool     brim_inner  = brim_type == btInnerOnly || brim_type == btOuterAndInner;
@@ -3864,6 +3865,10 @@ void PrintObjectSupportMaterial::generate_toolpaths(
                 filler->angle = raft_angle_1st_layer;
                 filler->spacing = m_support_params.first_layer_flow.spacing();
                 density       = float(m_object_config->raft_first_layer_density.value * 0.01);
+
+                // Copy first layer raft polygons into support layer so it can be used later.
+                for (const Polygon& plg : raft_layer.polygons)
+                    support_layer.support_islands.expolygons.emplace_back(ExPolygon(plg));
             } else if (support_layer_id >= m_slicing_params.base_raft_layers) {
                 filler->angle = raft_angle_interface;
                 // We don't use $base_flow->spacing because we need a constant spacing
