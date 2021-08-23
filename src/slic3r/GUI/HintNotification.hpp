@@ -10,6 +10,8 @@ namespace GUI {
 struct HintData
 {
 	std::string        text;
+	size_t			   weight;
+	bool               was_displayed;
 	std::string        hypertext;
 	std::string		   follow_text;
 	std::string		   disabled_tags;
@@ -46,9 +48,12 @@ public:
 private:
 	void	init();
 	void	load_hints_from_file(const boost::filesystem::path& path);
+	// Returns position in m_loaded_hints with next hint chosed randomly with weights
+	size_t  get_next();
 	size_t						m_hint_id;
 	bool						m_initialized { false };
 	std::vector<HintData>       m_loaded_hints;
+	bool						m_sorted_hints { false };
 
 };
 // Notification class - shows current Hint ("Did you know") 

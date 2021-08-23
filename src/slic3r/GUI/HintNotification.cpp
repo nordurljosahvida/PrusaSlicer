@@ -236,6 +236,8 @@ void HintDatabase::load_hints_from_file(const boost::filesystem::path& path)
 			std::string disabled_tags;
 			std::string enabled_tags;
 			std::string documentation_link;
+			size_t      weight = 1;
+			bool		was_displayed = false;
 			//unescape text1
 			unescape_string_cstyle(_utf8(dict["text"]), fulltext);
 			if (create_pot)
@@ -295,37 +297,41 @@ void HintDatabase::load_hints_from_file(const boost::filesystem::path& path)
 				documentation_link = dict["documentation_link"];
 			}
 
+			if (dict.find("weight") != dict.end()) {
+				weight = (size_t)std::max(1, std::atoi(dict["weight"].c_str()));
+			}
+
 			// create HintData
 			if (dict.find("hypertext_type") != dict.end()) {
 				//link to internet
 				if(dict["hypertext_type"] == "link") {
 					std::string	hypertext_link = dict["hypertext_link"];
-					HintData	hint_data{ text1, hypertext_text, follow_text, disabled_tags, enabled_tags, false, documentation_link, [hypertext_link]() { launch_browser_if_allowed(hypertext_link); }  };
+					HintData	hint_data{ text1, weight, was_displayed, hypertext_text, follow_text, disabled_tags, enabled_tags, false, documentation_link, [hypertext_link]() { launch_browser_if_allowed(hypertext_link); }  };
 					m_loaded_hints.emplace_back(hint_data);
 				// highlight settings
 				} else if (dict["hypertext_type"] == "settings") {
 					std::string		opt = dict["hypertext_settings_opt"];
 					Preset::Type	type = static_cast<Preset::Type>(std::atoi(dict["hypertext_settings_type"].c_str()));
 					std::wstring	category = boost::nowide::widen(dict["hypertext_settings_category"]);
-					HintData		hint_data{ text1, hypertext_text, follow_text, disabled_tags, enabled_tags, true, documentation_link, [opt, type, category]() { GUI::wxGetApp().sidebar().jump_to_option(opt, type, category); } };
+					HintData		hint_data{ text1, weight, was_displayed, hypertext_text, follow_text, disabled_tags, enabled_tags, true, documentation_link, [opt, type, category]() { GUI::wxGetApp().sidebar().jump_to_option(opt, type, category); } };
 					m_loaded_hints.emplace_back(hint_data);
 				// open preferences
 				} else if(dict["hypertext_type"] == "preferences") {
 					int			page = static_cast<Preset::Type>(std::atoi(dict["hypertext_preferences_page"].c_str()));
-					HintData	hint_data{ text1, hypertext_text, follow_text, disabled_tags, enabled_tags, false, documentation_link, [page]() { wxGetApp().open_preferences(page); } };
+					HintData	hint_data{ text1, weight, was_displayed, hypertext_text, follow_text, disabled_tags, enabled_tags, false, documentation_link, [page]() { wxGetApp().open_preferences(page); } };
 					m_loaded_hints.emplace_back(hint_data);
 
 				} else if (dict["hypertext_type"] == "plater") {
 					std::string	item = dict["hypertext_plater_item"];
-					HintData	hint_data{ text1, hypertext_text, follow_text, disabled_tags, enabled_tags, true, documentation_link, [item]() { wxGetApp().plater()->canvas3D()->highlight_toolbar_item(item); } };
+					HintData	hint_data{ text1, weight, was_displayed, hypertext_text, follow_text, disabled_tags, enabled_tags, true, documentation_link, [item]() { wxGetApp().plater()->canvas3D()->highlight_toolbar_item(item); } };
 					m_loaded_hints.emplace_back(hint_data);
 				} else if (dict["hypertext_type"] == "gizmo") {
 					std::string	item = dict["hypertext_gizmo_item"];
-					HintData	hint_data{ text1, hypertext_text, follow_text, disabled_tags, enabled_tags, true, documentation_link, [item]() { wxGetApp().plater()->canvas3D()->highlight_gizmo(item); } };
+					HintData	hint_data{ text1, weight, was_displayed, hypertext_text, follow_text, disabled_tags, enabled_tags, true, documentation_link, [item]() { wxGetApp().plater()->canvas3D()->highlight_gizmo(item); } };
 					m_loaded_hints.emplace_back(hint_data);
 				}
 				else if (dict["hypertext_type"] == "gallery") {
-					HintData	hint_data{ text1, hypertext_text, follow_text, disabled_tags, enabled_tags, false, documentation_link, []() {  
+					HintData	hint_data{ text1, weight, was_displayed, hypertext_text, follow_text, disabled_tags, enabled_tags, false, documentation_link, []() {
 						// Deselect all objects, otherwise gallery wont show.
 						wxGetApp().plater()->canvas3D()->deselect_all();
 						wxGetApp().obj_list()->load_shape_object_from_gallery(); } };
@@ -333,7 +339,7 @@ void HintDatabase::load_hints_from_file(const boost::filesystem::path& path)
 				}
 			} else {
 				// plain text without hypertext
-				HintData hint_data{ text1, hypertext_text, follow_text, disabled_tags, enabled_tags, false, documentation_link };
+				HintData hint_data{ text1, weight, was_displayed, hypertext_text, follow_text, disabled_tags, enabled_tags, false, documentation_link };
 				m_loaded_hints.emplace_back(hint_data);
 			}
 		}
@@ -354,20 +360,55 @@ HintData* HintDatabase::get_hint(bool up)
 	}
 
     // shift id
-    m_hint_id = (up ? m_hint_id + 1 : m_hint_id );
+    //m_hint_id = (up ? m_hint_id + 1 : m_hint_id );
+	m_hint_id = get_next();
     m_hint_id %= m_loaded_hints.size();
+
+
 
 	AppConfig* app_config = wxGetApp().app_config;
 	app_config->set("last_hint", std::to_string(m_hint_id));
 
-	//data = &m_loaded_hints[m_hint_id];
-	/*
-    data.text = m_loaded_hints[m_hint_id].text;
-    data.hypertext = m_loaded_hints[m_hint_id].hypertext;
-	data.follow_text = m_loaded_hints[m_hint_id].follow_text;
-    data.callback = m_loaded_hints[m_hint_id].callback;
-	*/
     return &m_loaded_hints[m_hint_id];
+}
+
+size_t HintDatabase::get_next()
+{
+	if (!m_sorted_hints)
+	{
+		auto compare_wieght = [](const HintData& a, const HintData& b){ return a.weight < b.weight; };
+		std::sort(m_loaded_hints.begin(), m_loaded_hints.end(), compare_wieght);
+		m_sorted_hints = true;
+		srand(time(NULL));
+	}
+	// total weight
+	size_t total_weight = 0;
+	for (const auto& hint : m_loaded_hints) {
+		if (!hint.was_displayed)
+		total_weight += hint.weight;
+	}
+	// all were shown
+	if (total_weight = 0) {
+		for (auto& hint : m_loaded_hints) {
+			hint.was_displayed = false;
+			total_weight += hint.weight;
+		}
+	}
+
+	size_t random_number = rand() % total_weight + 1;
+	size_t current_weight = 0;
+	for (size_t i = 0; i < m_loaded_hints.size(); i++) {
+		if (!m_loaded_hints[i].was_displayed) {
+			current_weight += m_loaded_hints[i].weight;
+			if (random_number <= current_weight) {
+				m_loaded_hints[i].was_displayed = true;
+				return i;
+			}
+		}
+			
+	}
+	BOOST_LOG_TRIVIAL(error) << "Hint notification random number generator failed.";
+	return 0;
 }
 
 void NotificationManager::HintNotification::count_spaces()
